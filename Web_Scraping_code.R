@@ -1,7 +1,8 @@
 # Preliminaries
 rm(list = ls())
+
 # Set your working directory to some place you can find
-setwd("~/Desktop")
+setwd("~/Semester 4/Text as Data/Computer_linguistics")
 
 # First we will need to install the packages we plan to use for this exercise (
 # if they are not already installed on your computer).
@@ -14,7 +15,7 @@ library(httr)
 library(stringr)
 
 # Lets start by downloading an example web page:
-url <- "http://www.mjdenny.com/Rcpp_Intro.html"
+#url <- "http://www.mjdenny.com/Rcpp_Intro.html"
 
 url2 <- "https://www.resourcesmag.org/archives/"
 

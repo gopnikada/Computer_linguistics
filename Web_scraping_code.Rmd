@@ -1,0 +1,63 @@
+---
+title: "Untitled"
+author: "Harsh Sharda"
+date: "1/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Preliminaries
+rm(list = ls())
+
+# Set your working directory to some place you can find
+setwd("~/Semester 4/Text as Data/Computer_linguistics")
+```
+
+
+```{r}
+# httr is a package for downloading html
+library(httr)
+# A package for manipulating strings
+library(stringr)
+```
+
+```{r}
+url <- "https://www.resourcesmag.org/archives/"
+page <- httr::GET(url)
+str(page)
+page_content <- httr::content(page, "text")
+cat(page_content)
+
+# and write it to a file for easier viewing
+write.table(x = page_content,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = "Links_search.html")
+```
+
+```{r}
+text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
+text_split_content
+
+# "href=\"/archives/how-clean-is-refined-coal/\""
+stringr::str_extract_all(text_split_content,"href=\"/archives/(.+)/")
+need  <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
+need[!is.na(need)]
+```
+
+```{r}
+i <- c(1:20)
+links <- vector()
+for(val in i){
+  url2 <- paste0(url,"?page=",val)
+  page <- httr::GET(url2)
+  str(page)
+  page_content <- httr::content(page, "text")
+  text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
+  urls <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
+  urls <- urls[!is.na(urls)]
+  links <- append(links, urls[3:length(urls)])
+}
+```
+
