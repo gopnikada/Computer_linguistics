@@ -19,6 +19,7 @@ setwd("~/Semester 4/Text as Data/Computer_linguistics")
 library(httr)
 # A package for manipulating strings
 library(stringr)
+library(XML)
 ```
 
 ```{r}
@@ -55,9 +56,87 @@ for(val in i){
   str(page)
   page_content <- httr::content(page, "text")
   text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
-  urls <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
+  urls <- stringr::str_match(text_split_content,"href=\"/archives/(.+)\"")[,2]
   urls <- urls[!is.na(urls)]
   links <- append(links, urls[3:length(urls)])
 }
 ```
+
+```{r}
+link1 <- httr::GET(paste0(url,links[76]))
+text <- httr::content(link1, "text")
+
+write.table(x = text,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = "content.html")
+
+#content=\"An interview with Benjamin Leard on how to create a bigger electric vehicle market that&#39;s powered by incentives.\"
+text_title <- stringr::str_match(text,"<title>(.+)</title>")[,2]
+text_content <- stringr::str_match(text,"content=\"(.+).\"")[,2]
+#text_split_content <- trimws(stringr::str_split(text,"\\n")[[1]])
+#text_split_content
+text <- stringr::str_extract_all(text,"<div class=\"rich-text\">.*</div>")[[1]]
+text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
+text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
+text <- stringr::str_replace_all(text,"<(/|)i>", "")
+text <- stringr::str_replace_all(text,"<(/|)b>", "")
+text <- stringr::str_replace_all(text,"039", "'")
+text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
+text <- stringr::str_replace_all(text,"</a>","")
+
+
+a <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")
+
+if (length(a)>0){
+  authors <- a[[1]][2]
+}
+# <h3 class=\"author__name\">James N. Sanchirico</h3>
+authors <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")[[1]][,2]
+```
+
+```{r}
+data <- data.frame(url = links,
+                   text_title = rep("",length(links)),
+                   text_content = rep("",length(links)),
+                   authors = rep("",length(links)),
+                   text = rep("",length(links)),
+                   stringsAsFactors = FALSE)
+```
+
+```{r}
+# loop through urls, download them, extract information:
+for (i in 50:length(links)) {
+  
+  link <- httr::GET(paste0(url,links[i]))
+  text <- httr::content(link, "text")
+  data$text_title[i] <- stringr::str_match(text,"<title>(.+)</title>")[,2]
+  data$text_content[i] <- stringr::str_match(text,"content=\"(.+).\"")[,2]
+  auth_check <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")[[1]][,2]
+  
+  if (length(auth_check)>0){
+    data$authors[i] <- auth_check
+  }
+  
+  text <- stringr::str_extract_all(text,"<div class=\"rich-text\">.*</div>")[[1]]
+  text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
+  text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
+  text <- stringr::str_replace_all(text,"<(/|)i>", "")
+  text <- stringr::str_replace_all(text,"<(/|)b>", "")
+  text <- stringr::str_replace_all(text,"039", "'")
+  text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
+  text <- stringr::str_replace_all(text,"</a>","")
+  
+  data$text[i] <- text
+  
+  #make sure we are not downloading data too fast
+  Sys.sleep(2)
+  
+}
+
+
+
+```
+
 
