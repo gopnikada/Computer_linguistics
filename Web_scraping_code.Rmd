@@ -92,7 +92,7 @@ for (i in 301:420) {
   
   data$text[i] <- text
   
-  data$date[i] = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8)
+  data$date[i] = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8) %>% as.Date(.,format = "%m.%d.%y")
 
   #make sure we are not downloading data too fast
   Sys.sleep(2)
@@ -135,7 +135,7 @@ raw = read_html("https://www.resourcesmag.org/archives/protecting-our-national-p
 link1 <- httr::GET(paste0(url,links[3]))
 raw = read_html(link1)
 body = raw %>% html_nodes(.,xpath="/html/body/main/div/div[2]/section/div[1]/div") %>% html_text()
-date = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8)
+date = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8) %>% as.Date(.,format = "%m.%d.%y")
 
 
 
