@@ -22,30 +22,8 @@ library(stringr)
 library(XML)
 ```
 
-```{r}
-url <- "https://www.resourcesmag.org/archives/"
-page <- httr::GET(url)
-str(page)
-page_content <- httr::content(page, "text")
-cat(page_content)
 
-# and write it to a file for easier viewing
-write.table(x = page_content,
-            col.names = FALSE,
-            row.names = FALSE,
-            quote = FALSE,
-            file = "Links_search.html")
-```
-
-```{r}
-text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
-text_split_content
-
-# "href=\"/archives/how-clean-is-refined-coal/\""
-stringr::str_extract_all(text_split_content,"href=\"/archives/(.+)/")
-need  <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
-need[!is.na(need)]
-```
+# Going through the 20 pages of the website and scraping data
 
 ```{r}
 i <- c(1:20)
@@ -62,8 +40,10 @@ for(val in i){
 }
 ```
 
+# Queries for extracting relevant information from the webpage
+
 ```{r}
-link1 <- httr::GET(paste0(url,links[76]))
+link1 <- httr::GET(paste0(url,links[78]))
 text <- httr::content(link1, "text")
 
 write.table(x = text,
@@ -72,11 +52,15 @@ write.table(x = text,
             quote = FALSE,
             file = "content.html")
 
-#content=\"An interview with Benjamin Leard on how to create a bigger electric vehicle market that&#39;s powered by incentives.\"
 text_title <- stringr::str_match(text,"<title>(.+)</title>")[,2]
 text_content <- stringr::str_match(text,"content=\"(.+).\"")[,2]
+
+
 #text_split_content <- trimws(stringr::str_split(text,"\\n")[[1]])
 #text_split_content
+
+text1 <- stringr::str_extract_all(text,"<div class=\"rich-text\"><hr/>.*</div></div>")[[1]]
+
 text <- stringr::str_extract_all(text,"<div class=\"rich-text\">.*</div>")[[1]]
 text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
 text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
@@ -96,6 +80,8 @@ if (length(a)>0){
 authors <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")[[1]][,2]
 ```
 
+## Creating a dataframe for storing all the information
+
 ```{r}
 data <- data.frame(url = links,
                    text_title = rep("",length(links)),
@@ -104,6 +90,9 @@ data <- data.frame(url = links,
                    text = rep("",length(links)),
                    stringsAsFactors = FALSE)
 ```
+
+
+# Creating a loop for the extraction process
 
 ```{r}
 # loop through urls, download them, extract information:
@@ -139,4 +128,31 @@ for (i in 50:length(links)) {
 
 ```
 
+## Intermediate Codes:
+
+
+```{r}
+url <- "https://www.resourcesmag.org/archives/"
+page <- httr::GET(url)
+str(page)
+page_content <- httr::content(page, "text")
+cat(page_content)
+
+# and write it to a file for easier viewing
+write.table(x = page_content,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = "Links_search.html")
+```
+
+```{r}
+text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
+text_split_content
+
+# "href=\"/archives/how-clean-is-refined-coal/\""
+stringr::str_extract_all(text_split_content,"href=\"/archives/(.+)/")
+need  <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
+need[!is.na(need)]
+```
 
