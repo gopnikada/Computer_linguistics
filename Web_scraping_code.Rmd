@@ -20,6 +20,8 @@ library(httr)
 # A package for manipulating strings
 library(stringr)
 library(XML)
+library(rvest)
+library(tidyverse)
 ```
 
 
@@ -40,10 +42,109 @@ for(val in i){
 }
 ```
 
+## Creating a dataframe for storing all the information
+
+```{r}
+data <- data.frame(url = links,
+                   text_title = rep("",length(links)),
+                   text_content = rep("",length(links)),
+                   authors = rep("",length(links)),
+                   text = rep("",length(links)),
+                   date = rep("",length(links)),
+                   stringsAsFactors = FALSE)
+```
+
+
+# Creating a loop for the extraction process
+
+```{r}
+# loop through urls, download them, extract information:
+for (i in 301:420) {
+  
+  link <- httr::GET(paste0(url,links[i]))
+  text <- httr::content(link, "text")
+  data$text_title[i] <- stringr::str_match(text,"<title>(.+)</title>")[,2]
+  data$text_content[i] <- stringr::str_match(text,"content=\"(.+).\"")[,2]
+  auth_check <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")[[1]][,2]
+  
+  if (length(auth_check)>0){
+    data$authors[i] <- auth_check
+  }
+  
+  text <- stringr::str_extract_all(text,"<div class=\"rich-text\">.*</div>")[[1]]
+  
+  raw = read_html(link)
+  
+  if (length(text)==0){
+    text = raw %>% html_nodes(.,xpath="/html/body/main/div/div[2]/section/div[1]/div") %>%
+      html_text()
+    text <- stringr::str_replace_all(text,"\n","")
+  } else {
+    text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
+    text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
+    text <- stringr::str_replace_all(text,"<(/|)i>", "")
+    text <- stringr::str_replace_all(text,"<(/|)b>", "")
+    text <- stringr::str_replace_all(text,"<(/|)h3>", "")
+    text <- stringr::str_replace_all(text,"039", "'")
+    text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
+    text <- stringr::str_replace_all(text,"</a>","")
+    }
+  
+  data$text[i] <- text
+  
+  data$date[i] = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8)
+
+  #make sure we are not downloading data too fast
+  Sys.sleep(2)
+  
+}
+```
+
+## Intermediate Codes:
+
+```{r}
+url <- "https://www.resourcesmag.org/archives/"
+page <- httr::GET(url)
+str(page)
+page_content <- httr::content(page, "text")
+cat(page_content)
+
+# and write it to a file for easier viewing
+write.table(x = page_content,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = "Links_search.html")
+```
+
+```{r}
+text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
+text_split_content
+
+# "href=\"/archives/how-clean-is-refined-coal/\""
+stringr::str_extract_all(text_split_content,"href=\"/archives/(.+)/")
+need  <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
+need[!is.na(need)]
+```
+
+```{r}
+require(rvest)
+require(tidyverse)
+raw = read_html("https://www.resourcesmag.org/archives/protecting-our-national-parks-new-entrance-fees-can-help/")
+
+link1 <- httr::GET(paste0(url,links[3]))
+raw = read_html(link1)
+body = raw %>% html_nodes(.,xpath="/html/body/main/div/div[2]/section/div[1]/div") %>% html_text()
+date = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8)
+
+
+
+```
+
 # Queries for extracting relevant information from the webpage
 
 ```{r}
-link1 <- httr::GET(paste0(url,links[78]))
+link1 <- httr::GET(paste0(url,links[285]))
 text <- httr::content(link1, "text")
 
 write.table(x = text,
@@ -59,17 +160,24 @@ text_content <- stringr::str_match(text,"content=\"(.+).\"")[,2]
 #text_split_content <- trimws(stringr::str_split(text,"\\n")[[1]])
 #text_split_content
 
-text1 <- stringr::str_extract_all(text,"<div class=\"rich-text\"><hr/>.*</div></div>")[[1]]
-
 text <- stringr::str_extract_all(text,"<div class=\"rich-text\">.*</div>")[[1]]
-text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
-text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
-text <- stringr::str_replace_all(text,"<(/|)i>", "")
-text <- stringr::str_replace_all(text,"<(/|)b>", "")
-text <- stringr::str_replace_all(text,"039", "'")
-text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
-text <- stringr::str_replace_all(text,"</a>","")
 
+
+if (length(text)==0){
+  raw = read_html(link1)
+  text = raw %>% html_nodes(.,xpath="/html/body/main/div/div[2]/section/div[1]/div") %>%
+    html_text()
+  text <- stringr::str_replace_all(text,"\n","")
+} else {
+  text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
+  text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
+  text <- stringr::str_replace_all(text,"<(/|)i>", "")
+  text <- stringr::str_replace_all(text,"<(/|)b>", "")
+  text <- stringr::str_replace_all(text,"<(/|)h3>", "")
+  text <- stringr::str_replace_all(text,"039", "'")
+  text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
+  text <- stringr::str_replace_all(text,"</a>","")
+  }
 
 a <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")
 
@@ -80,19 +188,6 @@ if (length(a)>0){
 authors <- stringr::str_match_all(text,"<h3 class=\"author__name\">(.*)</h3>")[[1]][,2]
 ```
 
-## Creating a dataframe for storing all the information
-
-```{r}
-data <- data.frame(url = links,
-                   text_title = rep("",length(links)),
-                   text_content = rep("",length(links)),
-                   authors = rep("",length(links)),
-                   text = rep("",length(links)),
-                   stringsAsFactors = FALSE)
-```
-
-
-# Creating a loop for the extraction process
 
 ```{r}
 # loop through urls, download them, extract information:
@@ -119,40 +214,10 @@ for (i in 50:length(links)) {
   
   data$text[i] <- text
   
+
+  
   #make sure we are not downloading data too fast
   Sys.sleep(2)
   
 }
-
-
-
-```
-
-## Intermediate Codes:
-
-
-```{r}
-url <- "https://www.resourcesmag.org/archives/"
-page <- httr::GET(url)
-str(page)
-page_content <- httr::content(page, "text")
-cat(page_content)
-
-# and write it to a file for easier viewing
-write.table(x = page_content,
-            col.names = FALSE,
-            row.names = FALSE,
-            quote = FALSE,
-            file = "Links_search.html")
-```
-
-```{r}
-text_split_content <- trimws(stringr::str_split(page_content,"\\n")[[1]])
-text_split_content
-
-# "href=\"/archives/how-clean-is-refined-coal/\""
-stringr::str_extract_all(text_split_content,"href=\"/archives/(.+)/")
-need  <- stringr::str_match(text_split_content,"href=\"/archives(.+)\"")[,2]
-need[!is.na(need)]
-```
 
