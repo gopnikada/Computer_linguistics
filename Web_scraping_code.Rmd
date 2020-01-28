@@ -29,6 +29,7 @@ library(tidyverse)
 
 ```{r}
 i <- c(1:20)
+url <- "https://www.resourcesmag.org/archives/"
 links <- vector()
 for(val in i){
   url2 <- paste0(url,"?page=",val)
@@ -59,7 +60,7 @@ data <- data.frame(url = links,
 
 ```{r}
 # loop through urls, download them, extract information:
-for (i in 301:420) {
+for (i in 1:length(links)) {
   
   link <- httr::GET(paste0(url,links[i]))
   text <- httr::content(link, "text")
@@ -93,7 +94,6 @@ for (i in 301:420) {
   data$text[i] <- text
   
   data$date[i] = raw %>% html_nodes(.,xpath="/html/body/main/div/div[1]/div/div[2]/p[1]") %>% html_text() %>% trimws(.) %>% substr(1,8) %>% as.Date(.,format = "%m.%d.%y")
-
   #make sure we are not downloading data too fast
   Sys.sleep(2)
   
@@ -103,6 +103,7 @@ for (i in 301:420) {
 ## Intermediate Codes:
 
 ```{r}
+library(zoo)
 url <- "https://www.resourcesmag.org/archives/"
 page <- httr::GET(url)
 str(page)
