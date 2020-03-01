@@ -1,0 +1,411 @@
+---
+title: "Untitled"
+author: "Harsh Sharda"
+date: "2/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+require(spacyr)
+require(tidyverse)
+require(quanteda) # main package we would be relying; Benoit
+library(ggplot2)
+```
+
+```{r}
+cont_variable <- read.csv(file = 'cat_variable_new.csv')
+data_index <- tibble::rowid_to_column(data, "sno")
+final_data <- merge(data_index,cont_variable,by="sno")
+final_data2 <- final_data[c(0:101),]
+final_data2 <- final_data2[c("url.x","text_title","text","authors","date","topic")]
+final_data2 <- transform(final_data2, date = as.numeric(date))
+final_data2$date <- as.Date(final_data2$date , origin = "1970-01-01")
+final_data2$year <- format(as.Date(final_data2$date , origin = "1970-01-01"),"%Y")
+```
+
+```{r}
+final_data3 <- final_data2[-c(41), ]
+```
+
+
+```{r}
+# Data cleaning
+
+POS_data <- final_data3 %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"[[:punct:]]",""))
+#  mutate(text = tolower(text))
+
+```
+
+```{r}
+corpus_RFF <- data.frame(sno = paste(1:100),
+                          text = POS_data[["text"]],
+                          date = POS_data[["date"]],
+                          topic = POS_data[["topic"]],
+                          year = POS_data[["year"]],
+                           stringsAsFactors = FALSE)
+```
+
+```{r}
+spacy_parse(POS_data[["text"]], lemma = FALSE)
+```
+
+
+```{r}
+corpus_POS_check <- corpus(corpus_RFF,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "100 Articles RFF"))
+summary(corpus_POS_check)
+```
+
+
+```{r}
+docs <- texts(corpus_POS_check)
+```
+
+
+```{r}
+## For ALL 1-3 Tags
+# now lets return the POS tag patterns as well:
+POS_tags_RFF <- phrasemachine(
+    docs,
+    regex = "Phrases",
+    maximum_ngram_length = 3,
+    minimum_ngram_length = 1,
+    return_phrase_vectors = TRUE,
+    return_tag_sequences = TRUE,
+    memory = "-Xmx512M")
+```
+
+```{r}
+# Creating a dataframe for all 1,2,3 n-grams
+
+ngrams <- data.frame(date=as.Date(character()),
+                 text=character(),
+                 year = numeric(),
+                 tag_sequence=character(), 
+                 topic=character(),
+                 stringsAsFactors=FALSE)
+
+for (i in 1:length(POS_tags_RFF)) {
+  RFF_tags <- data.frame(text = POS_tags_RFF[[i]]$phrases,
+                           tag_sequence = POS_tags_RFF[[i]]$tags)
+  
+  summary_check <- RFF_tags %>% group_by(tag_sequence) %>% summarise(count = n())
+  summary_check$topic <- POS_data[["topic"]][i]
+  summary_check$date <- POS_data[["date"]][i]
+  summary_check$year <- POS_data[["yearS"]][i]
+  ngrams <- rbind(ngrams,summary_check)
+  
+}
+```
+
+
+```{r}
+
+ngrams_group <- ngrams %>% group_by(tag_sequence) %>% summarise(count = sum(count))
+
+ggplot(ngrams_group,aes(x = reorder(tag_sequence, -count),y = count)) + geom_bar(stat = "identity") + theme(axis.text.x=element_text(angle=45, hjust=1))
+
+
+ngrams_na <- ngrams[rowSums(is.na(ngrams)) == 0,]
+ngrams_topic <- ngrams_na %>% group_by(topic,tag_sequence) %>% summarise(count = sum(count))
+
+write.csv(ngrams,'ngrams.csv')
+
+```
+
+
+
+
+```{r}
+
+POS_tags_RFF_words <- phrasemachine(
+    docs,
+    regex = "Phrases",
+    maximum_ngram_length = 3,
+    minimum_ngram_length = 1,
+    return_phrase_vectors = TRUE,
+    return_tag_sequences = FALSE,
+    memory = "-Xmx512M")
+
+temp_RFF <- unlist(lapply(POS_tags_RFF_words,paste0,collapse = " "))
+
+# assign back into our corpus object to retain metadata
+texts(corpus_POS_check) <- temp_RFF
+
+# now we tokenize only on whitespaces
+phrase_tokens <- tokens(corpus_POS_check,
+                        what = "fastestword")
+
+# and create a document term matrix
+doc_term_matrix <- quanteda::dfm(phrase_tokens,
+                                 tolower = TRUE,
+                                 stem = FALSE,
+                                 remove_punct = FALSE)
+
+topfeatures(doc_term_matrix,10)
+
+
+
+topic_1_3 <- topfeatures(doc_term_matrix,
+            n = 5,
+            groups = "topic")
+
+topics_1_3_gram <- data.frame(do.call(rbind, lapply(topic_1_3, function(x) { x <- names(x);length(x)<-5;x })))
+
+topics_1_3_gram <- tibble::rownames_to_column(topics_1_3_gram, "topics")
+
+write.csv(topics_1_3_gram,"topics_1_3.csv", row.names = FALSE)
+
+year_1_3 <- topfeatures(doc_term_matrix,
+            n = 5,
+            groups = "year")
+
+year_1_3_gram <- data.frame(do.call(rbind, lapply(year_1_3, function(x) { x <- names(x);length(x)<-5;x })))
+
+year_1_3_gram <- tibble::rownames_to_column(year_1_3_gram, "years")
+
+write.csv(year_1_3_gram,"year_1_3.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+POS_tags_RFF_words2 <- phrasemachine(
+    docs,
+    regex = "Phrases",
+    maximum_ngram_length = 2,
+    minimum_ngram_length = 2,
+    return_phrase_vectors = TRUE,
+    return_tag_sequences = FALSE,
+    memory = "-Xmx512M")
+
+temp_RFF2 <- unlist(lapply(POS_tags_RFF_words2,paste0,collapse = " "))
+
+# assign back into our corpus object to retain metadata
+texts(corpus_POS_check) <- temp_RFF2
+
+# now we tokenize only on whitespaces
+phrase_tokens <- tokens(corpus_POS_check,
+                        what = "fastestword")
+
+# and create a document term matrix
+doc_term_matrix <- quanteda::dfm(phrase_tokens,
+                                 tolower = TRUE,
+                                 stem = FALSE,
+                                 remove_punct = FALSE)
+
+topfeatures(doc_term_matrix,10)
+
+# Checking with emery castle
+a <- kwic(docs, "Castle", window=4)
+
+write.csv(topics_all,"topics_all.csv", row.names = FALSE)
+
+topic <- topfeatures(doc_term_matrix,
+            n = 10,
+            groups = "topic")
+
+n <- 10
+
+topics_1gram <- data.frame(do.call(rbind, lapply(topic, function(x) { x <- names(x);length(x)<-n;x })))
+
+write.csv(topics_1gram,"topics_1gram.csv", row.names = FALSE)
+
+n <- 10
+
+topic_year <- topfeatures(doc_term_matrix,
+            n = 10,
+            groups = "year")
+
+topics_year_1gram <- data.frame(do.call(rbind, lapply(topic_year, function(x) { x <- names(x);length(x)<-n;x })))
+
+write.csv(topics_year_1gram,"topics_year_1gram.csv", row.names = FALSE)
+```
+
+```{r}
+# and create a document term matrix with different combinations
+doc_term_matrix_2grams <- quanteda::dfm(corpus_POS_check,
+                                 tolower = TRUE,
+                                 stem = FALSE,
+                                 remove_punct = FALSE,
+                                 remove = stopwords("english"),
+                                 ngrams = 1)
+
+topfeatures(doc_term_matrix,100)
+
+topic <- topfeatures(doc_term_matrix_2grams,
+            n = 10,
+            groups = "topic")
+
+n <- 10
+
+topics_1gram <- data.frame(do.call(rbind, lapply(topic, function(x) { x <- names(x);length(x)<-n;x })))
+
+write.csv(topics_1gram,"topics_1gram.csv", row.names = FALSE)
+
+n <- 10
+
+topic_year <- topfeatures(doc_term_matrix_2grams,
+            n = 10,
+            groups = "year")
+
+topics_year_1gram <- data.frame(do.call(rbind, lapply(topic_year, function(x) { x <- names(x);length(x)<-n;x })))
+
+write.csv(topics_year_1gram,"topics_year_1gram.csv", row.names = FALSE)
+
+```
+
+
+
+## Intermediate Codes:
+
+
+
+```{r}
+phrase_documents_RFF <- phrasemachine(
+    docs,
+    regex = "Phrases",
+    maximum_ngram_length = 3,
+    minimum_ngram_length = 1,
+    return_phrase_vectors = TRUE,
+    return_tag_sequences = FALSE,
+    memory = "-Xmx512M")
+```
+
+
+```{r}
+my_corp_hs <- corpus(final_data2[["text"]],
+                  metacorpus = list(source = "100 Articles RFF"))
+summary(my_corp_hs)
+
+#To create a corpus from a data.frame
+my_corpus_df_hs <- data.frame(sno = paste(1:100),
+                           text = POS_data[["text"]],
+                           date = POS_data[["date"]],
+                           topic = POS_data[["topic"]],
+                           stringsAsFactors = FALSE)
+
+my_corpus_df_hs <- corpus(my_corpus_df_hs,
+                  docid_field = "sno",
+                  text_field = "text",
+                  metacorpus = list(source = "100 Articles RFF"))
+summary(my_corpus_df_hs)
+
+
+# The common goal of most text preprocessing is to generate a document-term
+# matrix, where each row represents a document, and each column represents the
+# count of a vocabulary term in the current document.
+doc_term_matrix_hs <- quanteda::dfm(my_corp_hs,
+                                 tolower = TRUE,
+                                 remove_numbers = TRUE,
+                                 remove_punct = TRUE,
+                                 remove_separators = TRUE,
+                                 remove_twitter = FALSE,
+                                 stem = FALSE)
+
+
+# look at some of the vocabulary
+head(doc_term_matrix_hs@Dimnames$features, n = 100)
+```
+
+
+```{r}
+# get column sums
+word_counts <- colSums(doc_term_matrix_hs)
+
+# order word counts
+word_counts <- word_counts[order(word_counts, decreasing = TRUE)]
+
+# top words
+head(word_counts,n = 100)
+
+# bottom words
+tail(word_counts,n = 100)
+
+# How many times that a word has appeared. 11768 words appeared one time
+table(word_counts)
+
+
+# another way to look at top terms:
+topfeatures(doc_term_matrix_hs,40)
+
+# we can also get the docvars back out as a data.frame:
+docvars(doc_term_matrix_hs)
+
+```
+
+
+```{r}
+final_data2[["text"]][1]
+for (i in 1:length(final_data2)) {
+  
+} 
+
+spacy_parse(final_data2[["text"]][1])
+tokens(final_data2[["text"]][1], ngrams = 3, skip = 0:2)
+```
+
+```{r}
+doc <- NLP::as.String(POS_data[["text"]][1])
+wordAnnotation_check <- NLP::annotate(doc)
+
+output_check <- phrasemachine(POS_data[["text"]][1],
+              regex = "Phrases",
+              return_tag_sequences = TRUE)
+
+example_data <- data.frame(text = output_check[[1]]$phrases,
+                           tag_sequence = output_check[[1]]$tags)
+
+example_data[which(example_data$tag_sequence == "AN"),]
+
+example_data[which(example_data$tag_sequence == "NVM"),]
+```
+
+```{r}
+document_check <- stringr::str_replace_all(example_text,"[\\s]+"," ")
+document_check <- stringr::str_replace_all(document_check,"[\\s]$","")
+
+document_check <- NLP::as.String(document_check)
+
+wordAnnotation_check <- NLP::annotate(
+    document_check,
+    list(openNLP::Maxent_Sent_Token_Annotator(),
+         openNLP::Maxent_Word_Token_Annotator()))
+
+POSAnnotation <- NLP::annotate(
+    document_check,
+    openNLP::Maxent_POS_Tag_Annotator(),
+    wordAnnotation_check)
+
+# lets take a look at the output:
+POSAnnotation[1:30]
+
+# extract the tagged words so we can get the tokens
+POSwords <- subset(POSAnnotation, type == "word")
+
+# extract the tokens and tags
+tags <- sapply(POSwords$features, '[[', "POS")
+tokens <- document_check[POSwords][1:length(tags)]
+
+# store everything in a list object
+tagged_document <- data.frame(tokens = tokens,
+                              tags = tags,
+                              stringsAsFactors = FALSE)
+
+```
+
+
+```{r}
+example_text <- "Anyway, here we are, my eighth and final appearance at this unique event. And I am excited. If this material works well, I’m going to use it at Goldman Sachs next year. Earn me some serious Tubmans. That’s right. That’s right. My brilliant and beautiful wife Michelle is here tonight. She looks so happy to be here. It’s called practice. It’s like learning to do three-minute planks. She makes it look easy now."
+```
+
+```{r}
+spacy_parse(example_text)
+```
+
