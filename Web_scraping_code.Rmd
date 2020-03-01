@@ -80,6 +80,7 @@ for (i in 1:length(links)) {
     text = raw %>% html_nodes(.,xpath="/html/body/main/div/div[2]/section/div[1]/div") %>%
       html_text()
     text <- stringr::str_replace_all(text,"\n","")
+    text <- stringr::str_replace_all(text,"<a href=\"(.+?)\">","")
   } else {
     text <- unlist(stringr::str_extract_all(text,"<p>(.*)</p>"))
     text <- paste(unlist(stringr::str_split(text,"\\<(/|)p>")),collapse = "")
@@ -97,8 +98,32 @@ for (i in 1:length(links)) {
   #make sure we are not downloading data too fast
   Sys.sleep(2)
   
+  write.table(x = text,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = paste0("text_",i,".txt"))
+  write.table(x = links[i],
+          col.names = FALSE,
+          row.names = FALSE,
+          quote = FALSE,
+          file = paste0("url_",i,".txt"))
+  
+  write.table(x = data$text_title[i],
+          col.names = FALSE,
+          row.names = FALSE,
+          quote = FALSE,
+          file = paste0("title_",i,".txt"))
+  
+  write.table(x = data$text_content[i],
+          col.names = FALSE,
+          row.names = FALSE,
+          quote = FALSE,
+          file = paste0("description_",i,".txt"))
+  
 }
 ```
+  
 
 ## Intermediate Codes:
 
@@ -116,6 +141,17 @@ write.table(x = page_content,
             row.names = FALSE,
             quote = FALSE,
             file = "Links_search.html")
+```
+```{r}
+url_md <- "http://www.gutenberg.org/files/11/11-0.txt"
+page <- httr::GET(url_md)
+str(page)
+page_content_md <- httr::content(page, "text")
+write.table(x = page_contenpartsofspeech_week4.Rt_md,
+            col.names = FALSE,
+            row.names = FALSE,
+            quote = FALSE,
+            file = "mdf_file.txt")
 ```
 
 ```{r}
@@ -220,5 +256,18 @@ for (i in 50:length(links)) {
   #make sure we are not downloading data too fast
   Sys.sleep(2)
   
-}
+} 
+```
+
+
+```{r}
+data2 <- data.frame(url = links,
+                    sno = c(1:length(links)),
+                    stringsAsFactors = FALSE)
+
+write.csv(x = data2,
+          row.names = FALSE,
+          file = "cat_variable.csv")
+```
+
 
