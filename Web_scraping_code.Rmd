@@ -98,28 +98,28 @@ for (i in 1:length(links)) {
   #make sure we are not downloading data too fast
   Sys.sleep(2)
   
-  write.table(x = text,
-            col.names = FALSE,
-            row.names = FALSE,
-            quote = FALSE,
-            file = paste0("text_",i,".txt"))
-  write.table(x = links[i],
-          col.names = FALSE,
-          row.names = FALSE,
-          quote = FALSE,
-          file = paste0("url_",i,".txt"))
+  #write.table(x = text,
+            #col.names = FALSE,
+            #row.names = FALSE,
+            #quote = FALSE,
+            #file = paste0("text_",i,".txt"))
+  #write.table(x = links[i],
+          #col.names = FALSE,
+          #row.names = FALSE,
+          #quote = FALSE,
+          #file = paste0("url_",i,".txt"))
   
-  write.table(x = data$text_title[i],
-          col.names = FALSE,
-          row.names = FALSE,
-          quote = FALSE,
-          file = paste0("title_",i,".txt"))
+  #write.table(x = data$text_title[i],
+          #col.names = FALSE,
+          #row.names = FALSE,
+          #quote = FALSE,
+          #file = paste0("title_",i,".txt"))
   
-  write.table(x = data$text_content[i],
-          col.names = FALSE,
-          row.names = FALSE,
-          quote = FALSE,
-          file = paste0("description_",i,".txt"))
+  #write.table(x = data$text_content[i],
+          #col.names = FALSE,
+          #row.names = FALSE,
+          #quote = FALSE,
+          #file = paste0("description_",i,".txt"))
   
 }
 ```

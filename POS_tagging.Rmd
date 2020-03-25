@@ -13,7 +13,7 @@ library(ggplot2)
 ```
 
 ```{r}
-cont_variable <- read.csv(file = 'cat_variable_new.csv')
+cont_variable <- read.csv(file = 'data/cat_variable_new.csv')
 data_index <- tibble::rowid_to_column(data, "sno")
 final_data <- merge(data_index,cont_variable,by="sno")
 final_data2 <- final_data[c(0:101),]
@@ -38,6 +38,7 @@ POS_data <- final_data3 %>%
   mutate(text = stringr::str_replace_all(text,"[[:punct:]]",""))
 #  mutate(text = tolower(text))
 
+head(POS_data)
 ```
 
 ```{r}
@@ -261,11 +262,7 @@ write.csv(topics_year_1gram,"topics_year_1gram.csv", row.names = FALSE)
 
 ```
 
-
-
 ## Intermediate Codes:
-
-
 
 ```{r}
 phrase_documents_RFF <- phrasemachine(
