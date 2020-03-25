@@ -1,0 +1,261 @@
+---
+title: "Term_weighting"
+author: "Harsh Sharda"
+date: "3/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load packages
+library(quanteda)
+library(SpeedReader)
+library(ggplot2)
+library(phrasemachine)
+library(rJava)
+```
+
+```{r}
+cont_variable <- read.csv(file = 'data/cat_variable_new.csv')
+data_index <- tibble::rowid_to_column(data, "sno")
+final_data <- merge(data_index,cont_variable,by="sno")
+final_data2 <- final_data[c(0:203),]
+final_data2 <- final_data2[c("url.x","text_title","text","authors","date","topic")]
+final_data2 <- transform(final_data2, date = as.numeric(date))
+final_data2$date <- as.Date(final_data2$date , origin = "1970-01-01")
+final_data2$year <- format(as.Date(final_data2$date , origin = "1970-01-01"),"%Y")
+```
+
+```{r}
+final_data3 <- final_data2[-c(41,179,197,199,202,203), ]
+```
+
+```{r}
+tw_data <- final_data3 %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+```{r}
+corpus_RFF_tw <- data.frame(sno = paste(1:197),
+                          text = tw_data[["text"]],
+                          date = tw_data[["date"]],
+                          topic = tw_data[["topic"]],
+                          year = tw_data[["year"]],
+                           stringsAsFactors = FALSE)
+```
+
+```{r}
+corpus_tw_final <- corpus(corpus_RFF_tw,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "197 Articles RFF"))
+summary(corpus_tw_final, n = 200)
+```
+
+```{r}
+# pull out some basic summary data:
+summary_data_tw <- as.data.frame(summary(corpus_tw_final, n = 200))
+
+# look at the variation in number of tokens per document
+ggplot(summary_data_tw, aes(x = Text, y = Tokens)) +
+    geom_col() + theme(axis.text.y = element_text(angle = 45)) + 
+    coord_flip()
+```
+
+
+```{r}
+# look at the variation in number of types per document
+ggplot(summary_data_tw, aes(x = Text, y = Types)) +
+    geom_col() +
+    coord_flip()
+```
+
+```{r}
+# create a quanteda dfm object:
+dtm_tw <- dfm(corpus_tw_final,
+           remove_punct = TRUE,
+           remove_numbers = TRUE)
+
+# check dimensions:
+dtm_tw
+
+# now we are going to convert this into a simple triplet matrix format:
+dtm_triplet_tw <- SpeedReader::convert_quanteda_to_slam(dtm_tw)
+
+# now we convert the result into a dense matrix format:
+dtm_dense_tw <- SpeedReader::sparse_to_dense_matrix(dtm_triplet_tw)
+
+```
+
+```{r}
+# Information Theoretic Quantities:
+
+# we are fortunate that there is a function to calculate PMI ready to go for us
+
+## USEFUL WITH WHAT'S HAPPENING WITH THE DATA
+pmi_table_tw <- pmi(dtm_triplet_tw)
+
+# we can also calculate the mutual information of the joint distribution
+# implied by the dtm:
+mutual_information(dtm_dense_tw)
+
+kwic(corpus_tw_final, "lca", window=4)
+kwic(corpus_tw_final, "cmcc", window=4)
+kwic(corpus_tw_final, "ccaas", window=6)
+kwic(corpus_tw_final, "wlfw", window=4)
+kwic(corpus_tw_final, "shewmake", window=4)
+
+
+```
+
+```{r}
+# let's try removing stopwors and see what happens to the mutual information
+# WE EXPECT THAT ON REMOVING THE STOPWORDS A MUCH BETTER MUTUAL INFORMATION
+# NOT TO USE TOLOWER BECAUSE WE CAN'T DIFFER WITH THE CAPS AND NORMAL WORDS, EVEN IF MUTUAL 
+# INFORMATION IS BETTER DOESN'T MEAN WE ARE DOING A BETTER JOB
+# of the join distribution impled by the resulting dtm:
+dtm2_tw <- dfm(corpus_tw_final,
+            remove_punct = TRUE,
+            remove_numbers = TRUE,
+            remove = stopwords("en"))
+# convert to a simple triplet matrix
+dtm_triplet2_tw <- SpeedReader::convert_quanteda_to_slam(dtm2_tw)
+```
+
+```{r}
+# now we calcualte it's mutual information. Note that we can do this for
+# simple triplet matrices or dense matrices. This function is mutch faster (for
+# very large matrices) when using a sparse representation of the matrix.
+mutual_information(dtm_triplet2_tw)
+pmi_table2_tw <- pmi(dtm_triplet2_tw)
+
+```
+
+```{r}
+# We can also calcualte entropy of term distributions:
+# REMOVING THE ONES WHICH ARE ZERO BECAUSE WE ARE TAKING LOGS
+calc_entropy <- function(input) {
+    # normalize
+    input <- input/sum(input)
+    rem <- which(input == 0)
+    if (length(rem) > 0) {
+        input <- input[-rem]
+    }
+    log_input <- log(input)
+    return(-sum(input*log_input))
+}
+
+# calculate entropy
+entropies <- apply(FUN = calc_entropy, X = dtm_dense_tw, MARGIN = 2)
+
+# find highest entropy terms
+entropies <- entropies[order(entropies,decreasing = T)]
+entropies[1:40]
+
+# find lowest entropy terms
+entropies <- entropies[order(entropies,decreasing = F)]
+entropies[1:40]
+
+
+
+# calculate entropy
+entropies <- apply(FUN = calc_entropy, X = dtm_triplet2_tw, MARGIN = 2)
+
+# find highest entropy terms
+entropies <- entropies[order(entropies,decreasing = T)]
+entropies[1:40]
+
+# find lowest entropy terms
+entropies <- entropies[order(entropies,decreasing = F)]
+entropies[1:40]
+```
+
+```{r}
+dtm_2grams <- dfm(corpus_tw_final,
+            remove_punct = TRUE,
+            remove_numbers = TRUE,
+            remove = stopwords("en"),
+            ngrams = 2)
+
+
+# we can see how this affects pmi top terms
+dtm_triplet_2grams <- SpeedReader::convert_quanteda_to_slam(dtm_2grams)
+
+# we are fortunate that there is a function to calculate PMI ready to go for us
+pmi_table_2grams <- pmi(dtm_triplet_2grams)
+
+```
+
+```{r}
+######### TF-IDF weighting: ###########
+
+
+# applies TF_t,d * log(num_docs/DF_t) weighting to each entry in the document term
+# matrix and returns a dtm where the i,j entries are no longer the number of
+# times the term appeared in the document, but have now had idf weighting
+# multipled for each term:
+Q_tfidf_tw <- quanteda::dfm_tfidf(dtm2_tw)
+
+# take a look a the top 20 terms across the entire corpus:
+Q_tfidf_tw <- as.matrix(Q_tfidf_tw)
+raw_dtm_tw <- as.matrix(dtm2_tw)
+top_n <- 20
+temp <- colSums(Q_tfidf_tw)
+temp <- temp[order(temp,decreasing = T)]
+temp <- data.frame(term = names(temp)[1:top_n],
+                   score = temp[1:top_n],
+                   stringsAsFactors = FALSE)
+row.names(temp) <- NULL
+print(temp)
+```
+
+```{r}
+# applies TF_t,d * log(num_docs/DF_t) weighting to each entry in the document term
+# matrix and returns a dtm where the i,j entries are no longer the number of
+# times the term appeared in the document, but have now had idf weighting
+# multipled for each term:
+Q_tfidf_tw_2gram <- quanteda::dfm_tfidf(dtm_2grams)
+
+# take a look a the top 20 terms across the entire corpus:
+Q_tfidf_tw_2gram <- as.matrix(Q_tfidf_tw_2gram)
+raw_dtm_tw_2gram <- as.matrix(dtm_2grams)
+top_n <- 20
+temp2 <- colSums(Q_tfidf_tw_2gram)
+temp2 <- temp2[order(temp2,decreasing = T)]
+temp2 <- data.frame(term = names(temp2)[1:top_n],
+                   score = temp2[1:top_n],
+                   stringsAsFactors = FALSE)
+row.names(temp2) <- NULL
+print(temp2)
+```
+```
+```{r}
+# We can also calcualte entropy of term distributions:
+# REMOVING THE ONES WHICH ARE ZERO BECAUSE WE ARE TAKING LOGS
+calc_entropy <- function(input) {
+    # normalize
+    input <- input/sum(input)
+    rem <- which(input == 0)
+    if (length(rem) > 0) {
+        input <- input[-rem]
+    }
+    log_input <- log(input)
+    return(-sum(input*log_input))
+}
+
+# calculate entropy
+entropies <- apply(FUN = calc_entropy, X = dtm_triplet_2grams, MARGIN = 2)
+
+# find highest entropy terms
+entropies <- entropies[order(entropies,decreasing = T)]
+entropies[1:40]
+
+# find lowest entropy terms
+entropies <- entropies[order(entropies,decreasing = F)]
+entropies[1:40]
+```

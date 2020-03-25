@@ -1,0 +1,86 @@
+---
+title: "Untitled"
+author: "Harsh Sharda"
+date: "3/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+cont_variable <- read.csv(file = 'data/cat_variable_new.csv')
+data_index <- tibble::rowid_to_column(data, "sno")
+final_data <- merge(data_index,cont_variable,by="sno")
+final_dat2 <- final_data[c(0:121),]
+final_dat2 <- final_dat2[c("url.x","text_title","text","authors","date","topic")]
+final_dat2 <- transform(final_dat2, date = as.numeric(date))
+final_dat2$date <- as.Date(final_dat2$date , origin = "1970-01-01")
+final_dat2$year <- format(as.Date(final_dat2$date , origin = "1970-01-01"),"%Y")
+final_dat3 <- final_dat2[-c(41), ]
+```
+
+```{r}
+POS_data <- final_dat3 %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+
+```{r cars}
+
+tokens_sa <- tokens(POS_data[["text"]], remove_punct = TRUE)
+coded_sa <- tokens_lookup(tokens_sa,
+                       dictionary =  data_dictionary_LSD2015)
+head(coded_sa, 3)
+```
+
+```{r}
+# now we make a document_term matrix out of the coded terms:
+dfm_lsd <- dfm(coded_sa)
+# and convert it to a data.frame:
+valences_by_speech<- convert(dfm_lsd, to = "data.frame")
+
+# adding year variable 
+
+valences_by_speech$year <- POS_data[["year"]]
+valences_by_speech$topic <- POS_data[["topic"]]
+
+# get sum of term counts
+all_words <- dfm(tokens_sa)
+valences_by_speech$total_words <- rowSums(all_words)
+
+# calculate Y&S measure:
+valences_by_speech$valence <- (valences_by_speech$positive/valences_by_speech$total_words) - (valences_by_speech$negative/valences_by_speech$total_words)
+
+# take a look at valence over time:
+ggplot(valences_by_speech, aes(x = year, y = valence)) + labs(y="Valence", x = "Years") +
+    ggtitle("Valence vs. Years") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5), plot.margin = margin(0.3,.8,0.3,.8, "cm")) +
+    geom_point() + geom_smooth()
+
+## All topics:
+ggplot(valences_by_speech, aes(x = topic, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Topics") + theme(plot.title = element_text(hjust = +0.5), plot.margin = margin(0.3,.8,0.3,.8, "cm")) +
+    geom_point() + geom_smooth()
+
+## Just AIR_QUALITY:
+ggplot(valences_by_speech[valences_by_speech$topic=="air_quality",], aes(x = year, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = air quality)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) +
+    geom_point() + geom_smooth()
+
+
+## Just Environmental Economics:
+ggplot(valences_by_speech[valences_by_speech$topic=="environmental_economics",], aes(x = year, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = environmental_economics)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) +
+    geom_point() + geom_smooth()
+
+## Just reforms:
+ggplot(valences_by_speech[valences_by_speech$topic=="reforms",], aes(x = year, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = reforms)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) +
+    geom_point() + geom_smooth()
+
+```
+
