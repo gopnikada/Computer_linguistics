@@ -1,0 +1,542 @@
+---
+title: "Supervised Learning"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(quanteda)
+library(xgboost)
+library(caret)
+library(ROCR)
+library(glmnet)
+library(pROC)
+```
+
+
+```{r}
+# Loading Data
+# A file with 205 documents
+load("C:/USers/hsharda/Desktop/base_data.Rdata")
+```
+
+```{r}
+# Converting factor into character
+i <- sapply(base_data, is.factor)
+base_data[i] <- lapply(base_data[i], as.character)
+sapply(base_data,class)
+```
+
+```{r}
+# Removing unncessary characters
+term_supr <- base_data %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,">"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"$"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"&#x27;","'")) %>%
+  mutate(text = stringr::str_replace_all(text,"&amp;","&")) %>%
+  mutate(text = stringr::str_replace_all(text,"&quot;","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/li","")) %>%
+  mutate(text = stringr::str_replace_all(text," li ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/ol","")) %>%
+  mutate(text = stringr::str_replace_all(text," ol ","")) %>%
+  
+  #Removing authors that are coming in the terms
+  #mutate(text = stringr::str_replace_all(text,"Krutilla","")) %>%
+  #mutate(text = stringr::str_replace_all(text,"Pinchot","")) %>%
+  #mutate(text = stringr::str_replace_all(text,"Muir","")) %>%
+  
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+```{r}
+corpus_supr <- data.frame(sno = paste(1:204),
+                          text = term_supr[["text"]],
+                          date = term_supr[["date.x"]],
+                          topic = term_supr[["topic"]],
+                          topic_merge = term_supr[["topic_merge"]],
+                          year = term_supr[["year"]],
+                          stringsAsFactors = FALSE)
+```
+
+```{r}
+# Creating a corpus object
+corpus_supr_final <- corpus(corpus_supr,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "204 Articles RFF"))
+#summary(corpus_ta_final, n = 200)
+```
+
+
+```{r}
+# process our data:
+dtm <- dfm(corpus_supr_final,
+           remove_punct = TRUE,
+           remove = stopwords("english"),
+           ngrams = 1:3)
+
+# look at vocabulary size
+dtm
+```
+
+```{r}
+# pull out the document level covariates:
+rff_features <- docvars(dtm)
+```
+
+```{r}
+# add a numeric encoding of the features where
+# Not Carbon = 0, Carbon = 1
+rff_features$topic_numeric <- 0
+rff_features$topic_numeric[which(rff_features$topic_merge == "carbon")] <- 1
+```
+
+################# GLMNET #################
+# lets start by training a supervised classifier for a binary classification
+# problem using a lasso (regularized) logistic regression model.
+
+
+```{r}
+set.seed(100)
+# partition our data into train and test sets:
+trainIndex <- createDataPartition(rff_features$topic_numeric,
+                                  p = 0.8,
+                                  list = FALSE,
+                                  times = 1)
+```
+
+
+
+```{r}
+# pull out the first column as a vector:
+trainIndex <- trainIndex[,1]
+
+train <- dtm[trainIndex, ]
+test <- dtm[-trainIndex, ]
+
+# Create separate vectors of our outcome variable for both our train and test sets
+# We'll use these to train and test our model later
+train.label  <- rff_features$topic_numeric[trainIndex]
+test.label   <- rff_features$topic_numeric[-trainIndex]
+
+```
+
+
+```{r}
+# train our lasso
+cvfit = cv.glmnet(x = train,
+                  y = train.label,
+                  family = "binomial",
+                  type.measure = "class")
+
+pdf(file = "C:/Users/hsharda/Desktop/Optimal_Lasso_Penalty_RFF.pdf",
+    width = 10,
+    height = 5)
+plot(cvfit)
+dev.off()
+
+```
+
+```{r}
+
+# lets take a look at the coefficients:
+head(coef(cvfit, s = "lambda.min"),n = 50)
+
+# make predictions
+pred <- predict(
+    cvfit,
+    newx = test,
+    s = "lambda.min",
+    type = "response")
+
+# select a threshold and generate predcited labels:
+pred_vals <- ifelse(pred >= 0.5, 1, 0)
+
+# Create the confusion matrix
+confusionMatrix(table(pred_vals, test.label),positive="1")
+
+# Use ROCR package to plot ROC Curve
+lasso.pred <- prediction(pred, test.label)
+lasso.perf <- performance(lasso.pred, "tpr", "fpr")
+
+pdf(file = "C:/Users/hsharda/Desktop/LASSO_ROC.pdf",
+    width = 6,
+    height = 6)
+plot(lasso.perf,
+     avg = "threshold",
+     colorize = TRUE,
+     lwd = 1,
+     main = "ROC Curve w/ Thresholds",
+     print.cutoffs.at = c(.9,.8,.7,.6,.5,.4,.3,.2,.1),
+     text.adj = c(-0.5, 0.5),
+     text.cex = 0.5)
+grid(col = "lightgray")
+axis(1, at = seq(0, 1, by = 0.1))
+axis(2, at = seq(0, 1, by = 0.1))
+abline(v = c(0.1, 0.3, 0.5, 0.7, 0.9), col="lightgray", lty="dotted")
+abline(h = c(0.1, 0.3, 0.5, 0.7, 0.9), col="lightgray", lty="dotted")
+lines(x = c(0, 1), y = c(0, 1), col="black", lty="dotted")
+dev.off()
+
+# we can also get the AUC for this predictor:
+auc.perf = performance(lasso.pred,
+                       measure = "auc")
+auc.perf@y.values[[1]]
+
+# and look at accuracy by threshold
+acc.perf = performance(lasso.pred, measure = "acc")
+plot(acc.perf)
+
+# we can also calculate the optimal accuracy and its associated threshold:
+ind = which.max( slot(acc.perf, "y.values")[[1]] )
+acc = slot(acc.perf, "y.values")[[1]][ind]
+cutoff = slot(acc.perf, "x.values")[[1]][ind]
+print(c(accuracy= acc, cutoff = cutoff))
+
+
+```
+
+
+```{r}
+# different ways of preprocessing our data can affect prediction accuracy. To
+# see how this can be the case, lets return to our party prediction problem
+# and now lets try some alternative preprocessing specifications:
+
+# start by writing a function to calculate accuracy given input data:
+generate_accuracy <- function(dtm,
+                              covariates)
+  {
+
+    set.seed(1234)
+#    fp <- covariates[keep,]
+#    dtm_p <- dtm[keep,]
+
+    # partition our data into train and test sets:
+    trainIndex <- createDataPartition(covariates$topic_numeric,
+                                      p = 0.8,
+                                      list = FALSE,
+                                      times = 1)
+
+    # pull out the first column as a vector:
+    trainIndex <- trainIndex[,1]
+
+    train <- dtm[trainIndex, ]
+    test <- dtm[-trainIndex, ]
+
+    # Create separate vectors of our outcome variable for both our train and test sets
+    # We'll use these to train and test our model later
+    train.label  <- covariates$topic_numeric[trainIndex]
+    test.label   <- covariates$topic_numeric[-trainIndex]
+
+    # train our lasso
+    cvfit = cv.glmnet(x = train,
+                      y = train.label,
+                      family = "binomial",
+                      type.measure = "class")
+
+    pred <- predict(
+        cvfit,
+        newx = test,
+        s = "lambda.min",
+        type = "response")
+
+    lasso.pred <- prediction(pred, test.label)
+    
+    # select a threshold and generate predcited labels:
+    pred_vals <- ifelse(pred >= 0.5, 1, 0)
+    
+    print(confusionMatrix(table(pred_vals, test.label),positive="1"))
+
+    # we can also get the AUC for this predictor:
+    auc.perf = performance(lasso.pred,
+                           measure = "auc")
+    cat("Model AUC:",auc.perf@y.values[[1]],"\n\n")
+
+    cat("Maximum accuracy and corresponding threshold:\n")
+    # and look at accuracy by threshold
+    acc.perf = performance(lasso.pred, measure = "acc")
+    
+    plot(acc.perf)
+
+    # we can also calculate the optimal accuracy and its associated threshold:
+    ind = which.max( slot(acc.perf, "y.values")[[1]] )
+    acc = slot(acc.perf, "y.values")[[1]][ind]
+    cutoff = slot(acc.perf, "x.values")[[1]][ind]
+    print(c(accuracy= acc, cutoff = cutoff))
+}
+
+```
+
+
+```{r}
+# add a numeric encoding of the features where
+# Not Carbon = 0, Carbon = 1
+rff_features$topic_numeric <- 0
+rff_features$topic_numeric[which(rff_features$topic_merge == "air_quality")] <- 1
+
+# process our data:
+dtm <- dfm(corpus_supr_final,
+           remove_punct = TRUE,
+           remove = stopwords("english"),
+           ngrams = 1:3)
+
+dtm <- dfm_trim(dtm,
+                min_termfreq = 20)
+
+dtm
+
+# calculate accuracy:
+generate_accuracy(dtm,
+                  rff_features)
+```
+
+
+```{r}
+################# XGBOOST #################
+# Now lets move on to training a model with XGBoost
+
+
+# add a numeric encoding of the features where
+# Not Carbon = 0, Carbon = 1
+rff_features$topic_numeric <- 0
+rff_features$topic_numeric[which(rff_features$topic_merge == "air_quality")] <- 1
+
+# process our data:
+dtm <- dfm(corpus_supr_final,
+           remove_punct = TRUE,
+           remove = stopwords("english"),
+           ngrams = 1:3)
+
+dtm <- dfm_trim(dtm,
+                min_termfreq = 5)
+
+```
+
+
+```{r}
+################# Logistic (Binary) ####################
+# Set the seed to create reproducible train and test sets
+
+set.seed(300)
+# Create a stratified random sample to create train and test sets
+# Reference the outcome variable
+trainIndex <- createDataPartition(rff_features$topic_numeric,
+                                  p = 0.75,
+                                  list = FALSE,
+                                  times = 1)
+
+# pull out the first column as a vector:
+trainIndex <- trainIndex[,1]
+
+train <- dtm[trainIndex, ]
+test <- dtm[-trainIndex, ]
+
+# Create separate vectors of our outcome variable for both our train and test sets
+# We'll use these to train and test our model later
+train.label  <- rff_features$topic_numeric[trainIndex]
+test.label   <- rff_features$topic_numeric[-trainIndex]
+
+
+
+# Set our hyperparameters
+param <- list(objective = "binary:logistic")
+
+set.seed(1234)
+
+# Pass in our hyperparameteres and train the model
+xgb <- xgboost(
+    params = param,
+    data = train,
+    label = train.label,
+    nrounds = 100,
+    print_every_n = 10,
+    verbose = 1)
+
+# generate predictions for test set:
+pred <- predict(xgb, test)
+
+# select a threshold and generate predcited labels:
+pred_vals <- ifelse(pred >= 0.5, 1, 0)
+
+# Create the confusion matrix
+confusionMatrix(table(pred_vals, test.label),positive="1")
+
+# Get the trained model
+model <- xgb.dump(xgb, with_stats=TRUE)
+
+# Get the feature real names
+names <- colnames(train)
+
+# Compute feature importance matrix
+importance_matrix <- xgb.importance(names, model = xgb)[0:30]
+
+# Plot
+png(file = "C:/Users/hsharda/Desktop/Binary_Feature_Importance_ROC.png",
+    width = 6,
+    height = 6,
+    units = "in",
+    res = 200)
+xgb.plot.importance(importance_matrix)
+dev.off()
+
+
+# Use ROCR package to plot ROC Curve
+xgb.pred <- prediction(pred, test.label)
+xgb.perf <- performance(xgb.pred, "tpr", "fpr")
+
+
+png(file = "C:/Users/hsharda/Desktop/XGB_ROC.png",
+    width = 6,
+    height = 6,
+    units = "in",
+    res = 200)
+plot(xgb.perf,
+     avg = "threshold",
+     colorize = TRUE,
+     lwd = 1,
+     main = "ROC Curve w/ Thresholds",
+     print.cutoffs.at = c(.95,.8,.5,.1),
+     text.adj = c(-0.5, 0.5),
+     text.cex = 0.5)
+grid(col = "lightgray")
+axis(1, at = seq(0, 1, by = 0.1))
+axis(2, at = seq(0, 1, by = 0.1))
+abline(v = c(0.1, 0.3, 0.5, 0.7, 0.9), col="lightgray", lty="dotted")
+abline(h = c(0.1, 0.3, 0.5, 0.7, 0.9), col="lightgray", lty="dotted")
+lines(x = c(0, 1), y = c(0, 1), col="black", lty="dotted")
+dev.off()
+
+# we can also get the AUC for this predictor:
+auc.perf = performance(xgb.pred,
+                       measure = "auc")
+auc.perf@y.values[[1]]
+
+# and look at accuracy by threshold
+acc.perf = performance(xgb.pred, measure = "acc")
+plot(acc.perf)
+
+# we can also calculate the optimal accuracy and its associated threshold:
+ind = which.max( slot(acc.perf, "y.values")[[1]] )
+acc = slot(acc.perf, "y.values")[[1]][ind]
+cutoff = slot(acc.perf, "x.values")[[1]][ind]
+print(c(accuracy= acc, cutoff = cutoff))
+
+```
+
+
+```{r}
+################# XGBOOST #################
+# Now lets move on to training a model with XGBoost
+
+################# Softmax (multiclass) ####################
+# Set the seed to create reproducible train and test sets
+
+# add a numeric encoding of the features where
+# Education = 0, Health = 1,  Immigration = 2
+rff_features$topic_numeric <- -1
+rff_features$topic_numeric[which(rff_features$topic_merge == "carbon")] <- 0
+rff_features$topic_numeric[which(rff_features$topic_merge == "air_quality")] <- 1
+rff_features$topic_numeric[which(rff_features$topic_merge == "ecosystem")] <- 2
+
+```
+
+
+```{r}
+# process our data:
+dtm <- dfm(corpus_supr_final,
+           remove_punct = TRUE,
+           remove = stopwords("english"),
+           ngrams = 1:3)
+
+dtm <- dfm_trim(dtm,
+                min_termfreq = 20)
+
+# get the indices we want to keep
+keep <- which(rff_features$topic_numeric == 0 |
+                       rff_features$topic_numeric == 1 |
+  rff_features$topic_numeric == 2)
+
+
+# subset our data:
+features_party <- rff_features[keep,]
+dtm_party <- dtm[keep,]
+
+
+trainIndex <- createDataPartition(features_party$topic_numeric,
+                                  p = 0.75,
+                                  list = FALSE,
+                                  times = 1)
+
+# pull out the first column as a vector:
+trainIndex <- trainIndex[,1]
+
+train <- dtm_party[trainIndex, ]
+test <- dtm_party[-trainIndex, ]
+
+# Create separate vectors of our outcome variable for both our train and test sets
+# We'll use these to train and test our model later
+train.label  <- features_party$topic_numeric[trainIndex]
+test.label   <- features_party$topic_numeric[-trainIndex]
+
+set.seed(1234)
+
+# Pass in our hyperparameteres and train the model
+xgb <- xgboost(
+    params = param,
+    data = train,
+    label = train.label,
+    nrounds = 100,
+    print_every_n = 10,
+    verbose = 1)
+
+# generate predictions for test set:
+pred <- predict(xgb, test)
+
+# Create the confusion matrix
+confusionMatrix(table(pred, test.label))
+
+# Get the trained model
+model <- xgb.dump(xgb, with_stats=TRUE)
+
+# Get the feature real names
+names <- colnames(train)
+
+# Compute feature importance matrix
+importance_matrix <- xgb.importance(names, model = xgb)[0:30]
+
+# Plot
+png(file = "C:/Users/hsharda/Desktop/Multiclass_Feature_Importance_RFF.png",
+    width = 6,
+    height = 6,
+    units = "in",
+    res = 200)
+xgb.plot.importance(importance_matrix)
+dev.off()
+
+# we can look at the multiclass AUC calcualted from:
+# David J. Hand and Robert J. Till (2001). A Simple Generalisation of the Area
+# Under the ROC Curve for Multiple Class Classification Problems. Machine
+# Learning 45(2), p. 171--186. DOI: 10.1023/A:1010920819831
+# Implemented in pROC package:
+roc.multi <- pROC::multiclass.roc(test.label, pred)
+
+# get the AUC:
+roc.multi
+
+# plot the ROC curves for each pair of outcomes:
+rs <- roc.multi[['rocs']]
+plot.roc(rs[[1]])
+sapply(2:length(rs),function(i) lines.roc(rs[[i]],col=i))
+
+
+```
+

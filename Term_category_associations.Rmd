@@ -1,0 +1,297 @@
+---
+title: "Term-category associations"
+author: "Harsh Sharda"
+date: "3/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load packages
+library(quanteda)
+library(SpeedReader)
+library(tidyverse)
+library(stringr)
+```
+
+```{r}
+# Taking in correct order of data
+data1 <- transform(data, date = as.numeric(date))
+data1$date <- as.Date(data1$date , origin = "1970-01-01")
+data1$year <- format(as.Date(data1$date , origin = "1970-01-01"),"%Y")
+
+data2 <- data.frame(url = data1[["url"]],
+                    sno = c(1:length(links)),
+                    date = data1[["date"]],
+                    stringsAsFactors = FALSE)
+write.csv(x = data2,
+          row.names = FALSE,
+          file = "data/cat_variable_corrected.csv")
+```
+
+```{r}
+cont_variable_corrected <- read.csv(file = 'data/cat_variable_corrected.csv')
+data_index <- tibble::rowid_to_column(data1, "sno")
+final_data <- merge(data_index,cont_variable_corrected,by="sno")
+final_data2 <- final_data[c(0:205),]
+final_data2 <- final_data2[c("url.x","text_title","text","authors","date.x","year","topic", "topic_merge")]
+
+base_data <- final_data2[-c(53),]
+
+# Saving Base Data
+save(base_data,file="data/base_data.Rdata")
+```
+
+
+```{r}
+# Loading Data
+# A file with 205 documents
+load("data/base_data.Rdata")
+```
+
+```{r}
+#Adding categories
+# Articles written before and after Trump election
+base_data$election <- ifelse(base_data$year>=2017,"post_trump","pre_trump")
+sapply(base_data,class)
+
+# Converting factor into character
+i <- sapply(base_data, is.factor)
+base_data[i] <- lapply(base_data[i], as.character)
+sapply(base_data,class)
+```
+
+```{r}
+# Removing unncessary characters
+term_asso <- base_data %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,">"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"$"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"&#x27;","'")) %>%
+  mutate(text = stringr::str_replace_all(text,"&amp;","&")) %>%
+  mutate(text = stringr::str_replace_all(text,"&quot;","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/li","")) %>%
+  mutate(text = stringr::str_replace_all(text," li ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/ol","")) %>%
+  mutate(text = stringr::str_replace_all(text," ol ","")) %>%
+  
+  #Removing authors that are coming in the terms
+  mutate(text = stringr::str_replace_all(text,"Krutilla","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Pinchot","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Muir","")) %>%
+  
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+
+```{r}
+# Viewing the count of articles across different classifications
+group_topic <- term_asso %>% group_by(.,topic, election) %>% summarise(count = n())
+
+# Exporting into csv
+write.csv(group_topic, "data/distribution_categorical.csv")
+
+group_topic_merge <- term_asso %>% group_by(.,topic_merge, election) %>% summarise(count = n())
+
+# Exporting into csv
+write.csv(group_topic_merge, "data/distribution_categorical2.csv")
+
+# The main topics that come out are
+# Oil Gas, Carbon pricing, air quality
+```
+
+
+```{r}
+# Creating a dataframe object
+corpus_ta <- data.frame(sno = paste(1:204),
+                          text = term_asso[["text"]],
+                          date = term_asso[["date.x"]],
+                          topic = term_asso[["topic"]],
+                          topic_merge = term_asso[["topic_merge"]],
+                          year = term_asso[["year"]],
+                          election = term_asso[["election"]],
+                          stringsAsFactors = FALSE)
+```
+
+```{r}
+# Creating a corpus object
+corpus_ta_final <- corpus(corpus_ta,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "204 Articles RFF"))
+#summary(corpus_ta_final, n = 200)
+```
+
+```{r}
+# Creating a DTM with 1 to 4 ngrams
+dtm_ta <- tokens(corpus_ta_final, remove_punct = TRUE, remove_numbers = TRUE) %>% tokens_ngrams(., n = 1:4) %>% dfm(.)
+
+dtm_ta
+
+kwic(corpus_ta_final,"endangered")
+
+term_asso[["text"]][4]
+```
+
+```{r}
+# now we are going to convert this into a simple triplet matrix format:
+dtm_triplet <- SpeedReader::convert_quanteda_to_slam(dtm_ta)
+```
+
+
+```{r}
+# extract the document features so we can use them to create a
+# contingency table:
+document_covariates <- docvars(dtm_ta)
+
+# now we create a contingency table over topics and parties. Note that the order
+# we input the variables_to_use vetor will change the order of the rows in the
+# contingency table, even though we will get the same results either way:
+topic_party_table <- contingency_table(
+    metadata = document_covariates,
+    document_term_matrix = dtm_triplet,
+    variables_to_use = c("topic_merge","election"),
+    threshold = 10
+    )
+```
+
+```{r}
+# look at rownames to get their numeric indices:
+rownames(topic_party_table)
+```
+
+```{r}
+# set the prior as the average number of terms in each row in the contingency
+# table. Note that the choice of prior will have a significant effect on results
+avg_terms_per_category <- mean(slam::row_sums(topic_party_table))
+
+slam::row_sums(topic_party_table)
+```
+
+
+```{r}
+# first let's  experiment with ranking by z-scores:
+# 
+top_features <- feature_selection(topic_party_table,
+                                  rows_to_compare = c(8,7),
+                                  alpha = avg_terms_per_category,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = FALSE)
+```
+
+```{r}
+# output a png with the plot included:
+png(file = "~/Desktop/AQ_1.png",
+    width = 10,
+    height = 8.5,
+    units = "in",
+    res = 200)
+fightin_words_plot(top_features,
+                   positive_category = "Pre Trump Reforms",
+                   negative_category = "Post Trump Reforms",
+                   max_terms_to_display = 1000000)
+dev.off()
+```
+
+
+```{r}
+# now lets try ranking by log-odds and see how the ranking changes:
+# Exclusively in one category and not at all in another category
+# 
+top_features <- feature_selection(topic_party_table,
+                                  rows_to_compare = c(14,13),
+                                  alpha = 0.001 * avg_terms_per_category,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = TRUE)
+```
+
+
+```{r}
+# output a png with the plot included:
+png(file = "~/Desktop/AQ_1_log_odds.png",
+    width = 10,
+    height = 8.5,
+    units = "in",
+    res = 200)
+fightin_words_plot(top_features,
+                   positive_category = "Pre Trump Carbon",
+                   negative_category = "Post Trump Carbon",
+                   max_terms_to_display = 1000000)
+dev.off()
+```
+
+
+```{r}
+
+topic_party_table1 <- contingency_table(
+    metadata = document_covariates,
+    document_term_matrix = dtm_triplet,
+    variables_to_use = c("topic_merge","election"),
+    threshold = 1
+    )
+
+rownames(topic_party_table1)
+
+avg_terms_per_category1 <- mean(slam::row_sums(topic_party_table1))
+
+# we can also try to generate a plot with subsumed n-grams as top terms:
+top_features1 <- feature_selection(topic_party_table1,
+                                  rows_to_compare = c(14,13),
+                                  document_term_matrix = dtm_triplet,
+                                  alpha = avg_terms_per_category1,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = FALSE,
+                                  subsume_ngrams = TRUE,
+                                  ngram_subsumption_correlation_threshold = 0.5)
+```
+
+```{r}
+############ ACMI #############
+
+# Remember that we can calculate the mutual information of the joint
+# distribution implied by the normalization of a contingency table:
+
+mutual_information(topic_party_table[13:14,]) 
+
+# lets look at some terms
+colnames(topic_party_table)[1:50]
+
+# lets try removing a stop-term like "the":
+# words that  don't add information, just making it seem that "the" is the stop word
+#mutual_information(topic_party_table[13:14,-9])
+
+# now we can calcualte term ACMI as a way of assessing how much information each
+# terms gives us about category, on average.
+acmi_contribs <- ACMI_contribution(topic_party_table)
+
+# now lets look at terms by their ACMI:
+term_acmi <- data.frame(
+    term = colnames(topic_party_table),
+    acmi = acmi_contribs$average_contribution,
+    count = slam::col_sums(topic_party_table),
+    stringsAsFactors = FALSE)
+# and order by acmi score:
+term_acmi <- term_acmi[order(term_acmi$acmi, decreasing = F),]
+
+# null out the rownames for display:
+rownames(term_acmi) <- NULL
+
+
+# lets look at the number of terms in each broad category:
+length(which(term_acmi$acmi < 0))
+length(which(term_acmi$acmi == 0))
+length(which(term_acmi$acmi > 0))
+
+# and look at the terms with the highest and lowest ACMI scores:
+head(term_acmi,n = 50)
+tail(term_acmi,n = 20)
+
+write.csv(tail(term_acmi,n = 20),"data/acmi_th10.csv")
+
+```
+

@@ -1,0 +1,219 @@
+---
+title: "Text Reuse and Document similarity"
+author: "Harsh Sharda"
+date: "4/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(quanteda)
+library(SpeedReader)
+library(slam)
+library(tidyverse)
+```
+
+```{r}
+# Loading Data
+# A file with 205 documents
+load("data/base_data.Rdata")
+```
+
+```{r}
+# Removing unncessary characters
+term_sim <- base_data %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,">"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"$"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"&#x27;","'")) %>%
+  mutate(text = stringr::str_replace_all(text,"&amp;","&")) %>%
+  mutate(text = stringr::str_replace_all(text,"&quot;","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/li","")) %>%
+  mutate(text = stringr::str_replace_all(text," li ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/ol","")) %>%
+  mutate(text = stringr::str_replace_all(text," ol ","")) %>%
+  
+  #Removing authors that are coming in the terms
+  mutate(text = stringr::str_replace_all(text,"Krutilla","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Pinchot","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Muir","")) %>%
+  
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+```{r}
+# Creating a dataframe object
+corpus_tr <- data.frame(sno = paste(1:204),
+                          text = term_sim[["text"]],
+                          date = term_sim[["date.x"]],
+                          topic = term_sim[["topic"]],
+                          topic_merge = term_sim[["topic_merge"]],
+                          year = term_sim[["year"]],
+                          stringsAsFactors = FALSE)
+```
+
+```{r}
+# Creating a corpus object
+corpus_tr_final <- corpus(corpus_tr,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "204 Articles RFF"))
+summary(corpus_tr_final)
+```
+
+
+```{r}
+# Air Quality
+data_corpus_bd <-  corpus_subset(corpus_tr_final,
+                                        topic == "air_quality")
+```
+
+
+```{r}
+# we start by creating a document term matrix:
+dtm_bd <- dfm(data_corpus_bd,
+           #remove = stopwords("english"),
+           stem = TRUE,
+           remove_punct = TRUE,
+           remove_numbers = TRUE)
+dtm_idf <- quanteda::dfm_tfidf(dtm_bd)
+```
+
+
+```{r}
+# calculate all pairwise similarities to given input documents:
+cos_sim_aq <- textstat_simil(
+    x = dtm_idf, # the input dtm for comparison
+    y = dtm_idf, # the rows we want to compare everything to
+    margin = "documents", # are we comparing documents or words?
+    method = "cosine") # the comparison method
+
+cos_sim_aq
+
+cos_sim_aq <- as.data.frame.matrix(cos_sim_aq)
+write.csv(cos_sim_aq,"data/cos_sim_aq_tfidf.csv")
+```
+
+```{r}
+# Air Quality
+data_corpus_bd <-  corpus_subset(corpus_tr_final,
+                                        topic == "carbon_pricing")
+
+data_corpus_bd <- dfm(data_corpus_bd,
+            stem = TRUE,
+            remove_punct = TRUE,
+            remove = stopwords("english"))
+
+data_corpus_bd <- dfm_trim(data_corpus_bd,
+                           min_termfreq = 10)
+
+# hierarchical clustering - get distances on normalized dfm where the term counts
+# are replaced by term proportions in documents:
+dists <- textstat_dist(dfm_weight(data_corpus_bd, scheme = "prop"),
+                       method = "euclidean")
+
+# now we can run a hiarchical clustering algorithm on the distance object.
+pres_cluster <- hclust(as.dist(dists))
+# label with document names
+pres_cluster$labels <- docnames(data_corpus_bd)
+
+
+png(file = "~/Desktop/dendrogram_cp.png",
+    width = 10,
+    height = 5,
+    units = "in",
+    res = 200)
+# plot as a dendrogram
+plot(pres_cluster, xlab = "", sub = "",
+     main = "Euclidean Distance on Normalized Token Frequency")
+dev.off()
+```
+
+```{r}
+# we can also play around with similarities between terms and other terms:
+
+data_corpus_bd <-  corpus_subset(corpus_tr_final,
+                                        topic == "carbon_pricing")
+
+
+dtm_total <- dfm(data_corpus_bd,
+            #stem = TRUE,
+            remove_punct = TRUE,
+            remove = stopwords("english"))
+
+term_sim <- textstat_simil(dtm_total,
+                           dtm_total[, c("climate" ,"emissions",
+                                         "energy", "tax")],
+                           method = "cosine",
+                           margin = "features")
+
+# take a look at the most similar terms:
+lapply(as.list(term_sim), head, 10)
+```
+
+
+
+```{r}
+################ Text Reuse ##################
+# Now lets move on to assessing document editing and text reuse methods:
+# There is a more detailed tutorial available at the end of this page:
+# http://www.mjdenny.com/getting_started_with_SpeedReader.html
+
+
+
+
+two_doc_comparison <- ngram_sequence_matching(
+    document_2 = corpus_tr[["text"]][71],
+    document_1 = corpus_tr[["text"]][170],
+    ngram_size = 3,
+    use_hashmap = TRUE)
+
+
+png(file = "~/Desktop/match_sequence.png",
+    width = 6,
+    height = 2,
+    units = "in",
+    res = 200)
+ngram_sequnce_plot(two_doc_comparison)
+dev.off()
+
+```
+
+
+```{r}
+
+data_corpus_bd <-  corpus_subset(corpus_tr_final,
+                                        topic == "air_quality")
+
+a <- text(data_corpus_bd)
+
+bill_tr2 <- document_similarities(filenames = NULL,
+                                 documents = corpus_tr[["text"]],
+                                 input_directory = NULL,
+                                 ngram_size = 3,
+                                 output_directory = NULL,
+                                 doc_pairs = NULL,
+                                 cores = 1,
+                                 max_block_size = NULL,
+                                 prehash = TRUE,
+                                 ngram_match_only = FALSE,
+                                 document_block_size = NULL,
+                                 add_ngram_comparisons = NULL,
+                                 unigram_similarity_threshold = 0.5,
+                                 doc_lengths = NULL)
+```
+
+
+```{r}
+#Adding categories
+# Articles written before and after Trump election
+base_data$election <- ifelse(base_data$year>=2017,"post_trump","pre_trump")
+sapply(base_data,class)
+
+# Converting factor into character
+i <- sapply(base_data, is.factor)
+base_data[i] <- lapply(base_data[i], as.character)
+sapply(base_data,class)
+```
