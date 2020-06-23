@@ -1,0 +1,322 @@
+---
+title: "Topic_Models_2"
+author: "Harsh Sharda"
+date: "4/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(quanteda)
+library(SpeedReader)
+library(ggplot2)
+
+# for running topic models:
+# install.packages("stm",dependencies = TRUE)
+library(stm)
+
+# optional fun package that makes cool topic clustering plots:
+# install.packages("stmCorrViz",dependencies = TRUE)
+library(stmCorrViz)
+```
+
+```{r}
+# Loading Data
+# A file with 205 documents
+load("data/base_data.Rdata")
+```
+
+```{r}
+#Adding categories
+# Articles written before and after Trump election
+base_data$election <- ifelse(base_data$year>=2017,"post_trump","pre_trump")
+sapply(base_data,class)
+
+# Converting factor into character
+i <- sapply(base_data, is.factor)
+base_data[i] <- lapply(base_data[i], as.character)
+sapply(base_data,class)
+```
+
+```{r}
+# Replacing NA values
+base_data[["topic"]][is.na(base_data[["topic"]])] <- 'misc'
+base_data[["topic_merge"]][is.na(base_data[["topic_merge"]])] <- 'misc'
+```
+
+```{r}
+# Removing unncessary characters
+term_topic2 <- base_data %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,">"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"$"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"&#x27;","'")) %>%
+  mutate(text = stringr::str_replace_all(text,"&amp;","&")) %>%
+  mutate(text = stringr::str_replace_all(text,"&quot;","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/li","")) %>%
+  mutate(text = stringr::str_replace_all(text," li ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/ol","")) %>%
+  mutate(text = stringr::str_replace_all(text," ol ","")) %>%
+  
+  #Removing authors that are coming in the terms
+  #mutate(text = stringr::str_replace_all(text,"Krutilla","")) %>%
+  #mutate(text = stringr::str_replace_all(text,"Pinchot","")) %>%
+  #mutate(text = stringr::str_replace_all(text,"Muir","")) %>%
+  
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+```{r}
+# Creating a dataframe object
+corpus_topic2 <- data.frame(sno = paste(1:204),
+                          text = term_topic2[["text"]],
+                          date = term_topic2[["date.x"]],
+                          topic = term_topic2[["topic"]],
+                          topic_merge = term_topic2[["topic_merge"]],
+                          election = term_topic2[["election"]],
+                          year = term_topic2[["year"]],
+                          stringsAsFactors = FALSE)
+```
+
+```{r}
+# Creating a corpus object
+corpus_topic_final2 <- corpus(corpus_topic2,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "204 Articles RFF"))
+summary(corpus_topic_final2)
+```
+
+
+```{r}
+# create a dfm object
+dtm <- dfm(corpus_topic_final2,
+           remove_punct = TRUE,
+           remove_numbers = TRUE,
+           remove = stopwords("english"))
+
+# look at number of features:
+dtm
+
+# now lets trim terms that appear very infrequently, and terms that appear in
+# the overwhelming majority of documents:
+dtm <- dfm_trim(dtm,
+                min_docfreq = 10)
+                #max_docfreq = 1800)
+
+# look at number of features again:
+dtm
+```
+
+```{r}
+summary(rowSums(dtm))
+```
+
+```{r}
+# lets fit a topic model with covariate effects
+stm_fit <- stm(dtm,
+               prevalence = as.formula("~topic_merge"),
+               # Limits functionality if we consider content as well
+               content = as.formula("~election"),
+               data = docvars(dtm),
+               K = 15,
+               seed = 12345,
+               verbose = TRUE)
+```
+
+```{r}
+# we can start by looking at the top 8 terms in each of the topics,
+# along with their overall proportion in the corpus:
+png(file = "~/Desktop/Topic_Summaries_RFF_TM2.png",
+    width = 12,
+    height = 10,
+    units = "in",
+    res = 200)
+plot.STM(stm_fit,
+         type="summary",
+         n = 8)
+dev.off()
+
+# optional argument when no content covariates: labeltype = "frex"
+```
+
+```{r}
+# lets take a look at topic quality
+out <- quanteda::convert(dtm, to = "stm")
+docs <- out$documents
+vocab <- out$vocab
+meta <- out$meta
+# will make a plot for models without content covariates, only returns coherence
+# scores for each topic when content covariates are specified:
+topicQuality(model=stm_fit, documents=docs)
+
+# much more detailed term ranking within topics:
+print(sageLabels(stm_fit))
+```
+
+```{r}
+# get estimated effects
+estimates <- estimateEffect(
+    1:15~election,
+    stm_fit,
+    metadata = meta,
+    uncertainty = "Global")
+```
+
+```{r}
+# This won't work in my case because I have prevelance variable as just one categorical variable
+# plot
+png(file = "~/Desktop/Cosponsor_Estimates_RFF.png",
+    width = 6,
+    height = 6,
+    units = "in",
+    res = 200)
+plot(estimates,
+     covariate =  "election",
+     method = "continuous",
+     topics = c(1,9),
+     method = "difference",
+     cov.value1 = "Post Trump",
+     cov.value2 = "Pre Trump",
+     xlab = "Post Trump ... Pre Trump",
+     main = "Effect of Post Trump vs. Pre Trump",
+     labeltype = "custom",
+     xlim = c(-.15,.05),
+     custom.labels = c("Oil Related",
+                       "Carbon"))
+dev.off()
+
+```
+
+```{r}
+# we can also make a "perspectives" plot with words most strongly associated
+# to each party within topic:
+png(file = "~/Desktop/Administration_Terms_RFF.png",
+    width = 8,
+    height = 8,
+    units = "in",
+    res = 200)
+plot(stm_fit, type="perspectives", topics=1, n = 60)
+dev.off()
+```
+
+```{r}
+# we can also get an interesting visualization of the topic heirarchy:
+stmCorrViz(stm_fit, "~/Desktop/stm-interactive-correlation_RFF.html",
+           documents_raw = texts(corpus_topic_final2),
+           documents_matrix = out$documents)
+```
+
+```{r}
+# use findThoughts function for topic validation
+findThoughts(stm_fit,
+             texts = texts(corpus_topic_final2),
+             topics = 9,
+             n = 2)
+```
+
+```{r}
+# we can also extracta trace plot of the approximate model log likelihood:
+png(file = "~/Desktop/Trace_Plot_RFF.png",
+    width = 6,
+    height = 4,
+    units = "in",
+    res = 200)
+plot(stm_fit$convergence$bound,
+     ylab="Approximate Objective",
+     main="Trace Plot")
+dev.off()
+```
+
+```{r}
+################ Convergence Diagnostics in MALLET ##############
+
+# The corpus is getting larger by essentially using ngrams of 1:3
+dtm <- dfm(corpus_topic_final,
+           remove_punct = TRUE,
+           remove = stopwords("english"))
+
+dtm <- tokens_remove(tokens(corpus_topic_final, remove_punct = TRUE), stopwords("english")) %>% tokens_ngrams(., n = 1:3) %>% dfm(.)
+
+dtm
+
+dtm <- dfm_trim(dtm,
+                min_termfreq = 5)
+
+# now we convert to a simple triplet matrix
+dtm_trip <- SpeedReader::convert_quanteda_to_slam(dtm)
+
+```
+
+```{r}
+setwd("~/Desktop")
+lda_acmi <- mallet_lda(
+    documents = dtm_trip,
+    topics = 15,
+    iterations = 10000,
+    burnin = 10,
+    alpha = 1,
+    beta = 0.01,
+    hyperparameter_optimization_interval = 20,
+    cores = 1,
+    delete_intermediate_files = TRUE)
+```
+
+```{r}
+# code that generates the trace plot and geweke diagnostic
+
+geweke_plot <- function(mallet_lda_output,
+                        burnin) {
+    # pull out some intermediate variables
+    LL_Token <- mallet_lda_output$lda_trace_stats$LL_Token
+    iteration <- mallet_lda_output$lda_trace_stats$iteration
+
+    # color for dots:
+    UMASS_BLUE <- rgb(51,51,153,255,maxColorValue = 255)
+    plot( y = LL_Token[ceiling(burnin/10):length(LL_Token)],
+        x = iteration[ceiling(burnin/10):length(LL_Token)],
+        pch = 19, col = UMASS_BLUE,
+        main = paste(
+            "Un-Normalized Topic Model Log Likelihood \n",
+            " Geweke Statistic for Last",
+            length(ceiling(burnin/10):length(LL_Token)),
+            "Iterations:",
+            round(coda::geweke.diag(
+                LL_Token[ceiling(burnin/10):length(LL_Token)])$z,
+                2)),
+        xlab = "Iteration", ylab = "Log Likelihood",
+        cex.lab = 2, cex.axis = 1.4, cex.main = 1.4)
+}
+
+```
+
+```{r}
+geweke_plot(lda_acmi,
+            1)
+
+geweke_plot(lda_acmi,
+            400)
+
+geweke_plot(lda_acmi,
+            1000)
+
+geweke_plot(lda_acmi,
+            5000)
+
+geweke_plot(lda_acmi,
+            9000)
+```
+
+```{r}
+# there is also a function to calculate topic coherence for arbitrary top
+# terms lists :
+topic_coherence(lda_acmi$topic_top_words$top_word_3,
+                as.matrix(dtm_trip),
+                vocabulary = colnames(dtm_trip))
+```
+

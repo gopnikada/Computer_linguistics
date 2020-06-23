@@ -1,0 +1,392 @@
+---
+title: "Final Project"
+author: "Harsh Sharda"
+date: "5/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# lets load in quanteda
+require(quanteda)
+require(ggplot2)
+library(tidyverse)
+library(SpeedReader)
+library(stm)
+library(stmCorrViz)
+```
+
+
+```{r}
+# Loading Data
+# A file with 205 documents
+load("data/base_data.Rdata")
+```
+
+```{r}
+#Adding categories
+# Articles written before and after Trump election
+base_data$election <- ifelse(base_data$year>=2017,"post_trump","pre_trump")
+sapply(base_data,class)
+
+# Converting factor into character
+i <- sapply(base_data, is.factor)
+base_data[i] <- lapply(base_data[i], as.character)
+sapply(base_data,class)
+```
+
+```{r}
+# Replacing NA values
+base_data[["topic"]][is.na(base_data[["topic"]])] <- 'misc'
+base_data[["topic_merge"]][is.na(base_data[["topic_merge"]])] <- 'misc'
+```
+
+```{r}
+# Removing unncessary characters
+rff_data <- base_data %>%
+  mutate(text = stringr::str_replace_all(text,"-"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,">"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"$"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"&#x27;","'")) %>%
+  mutate(text = stringr::str_replace_all(text,"&amp;","&")) %>%
+  mutate(text = stringr::str_replace_all(text,"&quot;","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/li","")) %>%
+  mutate(text = stringr::str_replace_all(text," li ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"/ol","")) %>%
+  mutate(text = stringr::str_replace_all(text," ol ","")) %>%
+  mutate(text = stringr::str_replace_all(text,"<br/>","")) %>%
+  
+  #Removing authors that are coming in the terms
+  mutate(text = stringr::str_replace_all(text,"Krutilla","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Pinchot","")) %>%
+  mutate(text = stringr::str_replace_all(text,"Muir","")) %>%
+  
+  mutate(text = stringr::str_replace_all(text,"<(/|)ol>"," ")) %>%
+  mutate(text = stringr::str_replace_all(text,"<(/|)li>"," "))
+```
+
+```{r}
+# Removing nodups
+rff_data_nodups <- rff_data[!duplicated(rff_data$url.x), ]
+```
+
+
+```{r}
+# Viewing the count of articles across different classifications
+group_topic <- rff_data_nodups %>% group_by(.,topic_merge, election) %>% summarise(count = n())
+
+write.csv(group_topic,'data/cons_categories_FP.csv')
+```
+
+## Sentiment Analysis:
+
+```{r}
+# Lexicoder Sentiment Dictionary:
+summary(data_dictionary_LSD2015)
+```
+
+```{r}
+tokens_sa <- tokens(rff_data_nodups[["text"]], remove_punct = TRUE)
+coded_sa <- tokens_lookup(tokens_sa,
+                       dictionary =  data_dictionary_LSD2015)
+head(coded_sa, 3)
+```
+
+
+```{r}
+# now we make a document_term matrix out of the coded terms:
+dfm_lsd <- dfm(coded_sa)
+# and convert it to a data.frame:
+valences_by_speech<- convert(dfm_lsd, to = "data.frame")
+
+# adding year variable 
+
+valences_by_speech$year <- rff_data_nodups[["year"]]
+valences_by_speech$topic <- rff_data_nodups[["topic"]]
+valences_by_speech$topic_merge <- rff_data_nodups[["topic_merge"]]
+valences_by_speech$election <- rff_data_nodups[["election"]]
+
+# get sum of term counts
+all_words <- dfm(tokens_sa)
+valences_by_speech$total_words <- rowSums(all_words)
+
+# calculate Y&S measure:
+valences_by_speech$valence <- (valences_by_speech$positive/valences_by_speech$total_words) - (valences_by_speech$negative/valences_by_speech$total_words)
+```
+
+```{r}
+# take a look at valence over time:
+b <- ggplot(valences_by_speech, aes(x = election, y = valence)) + labs(y="Valence", x = "Election Years") +
+    ggtitle("Valence vs. Election Years") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5), plot.margin = margin(0.3,.8,0.3,.8, "cm")) +
+    geom_point() + geom_smooth()
+
+## All topics:
+ggplot(valences_by_speech, aes(x = topic_merge, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Topics") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5), plot.margin = margin(0.3,.8,0.3,.8, "cm")) +
+    geom_point() + geom_smooth()
+
+## Just AIR_QUALITY:
+a <- ggplot(valences_by_speech[valences_by_speech$topic_merge=="oil_gas",], aes(x = election, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = Oil & Gas)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) + 
+    geom_point() + geom_smooth()
+
+
+## Just Environmental Economics:
+a <- ggplot(valences_by_speech[valences_by_speech$topic_merge=="environmental_economics",], aes(x = election, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = environmental_economics)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) +
+    geom_point() + geom_smooth()
+
+## Just reforms:
+ggplot(valences_by_speech[valences_by_speech$topic=="reforms",], aes(x = year, y = valence)) + labs(y="Valence", x = "Topics") +
+    ggtitle("Valence vs. Year (topic = reforms)") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = +0.5)) +
+    geom_point() + geom_smooth()
+
+```
+
+
+```{r}
+checks <- base_data[base_data$topic_merge == "environmental_economics",]
+checks[["text"]][5]
+```
+
+## Term Category Associations:
+
+```{r}
+# Creating a dataframe object
+corpus_ta <- data.frame(sno = paste(1:195),
+                          text = rff_data_nodups[["text"]],
+                          date = rff_data_nodups[["date.x"]],
+                          topic = rff_data_nodups[["topic"]],
+                          topic_merge = rff_data_nodups[["topic_merge"]],
+                          year = rff_data_nodups[["year"]],
+                          election = rff_data_nodups[["election"]],
+                          stringsAsFactors = FALSE)
+```
+
+```{r}
+# Creating a corpus object
+corpus_ta_final <- corpus(corpus_ta,
+                          docid_field = "sno",
+                          text_field = "text",
+                          metacorpus = list(source = "195 Articles RFF"))
+#summary(corpus_ta_final, n = 200)
+```
+
+```{r}
+# Creating a DTM with 1 to 4 ngrams
+dtm_ta <- tokens(corpus_ta_final, remove_punct = TRUE, remove_numbers = TRUE) %>% tokens_ngrams(., n = 1:4) %>% dfm(.)
+
+dtm_ta
+
+kwic(corpus_ta_final,"stumpf")
+
+rff_data_nodups[["text"]][76]
+```
+
+```{r}
+# now we are going to convert this into a simple triplet matrix format:
+dtm_triplet <- SpeedReader::convert_quanteda_to_slam(dtm_ta)
+```
+
+
+```{r}
+# extract the document features so we can use them to create a
+# contingency table:
+document_covariates <- docvars(dtm_ta)
+
+# now we create a contingency table over topics and parties. Note that the order
+# we input the variables_to_use vetor will change the order of the rows in the
+# contingency table, even though we will get the same results either way:
+topic_party_table <- contingency_table(
+    metadata = document_covariates,
+    document_term_matrix = dtm_triplet,
+    variables_to_use = c("topic_merge","election"),
+    threshold = 5
+    )
+```
+
+```{r}
+# look at rownames to get their numeric indices:
+rownames(topic_party_table)
+```
+
+```{r}
+# set the prior as the average number of terms in each row in the contingency
+# table. Note that the choice of prior will have a significant effect on results
+avg_terms_per_category <- mean(slam::row_sums(topic_party_table))
+
+slam::row_sums(topic_party_table)
+```
+
+```{r}
+# first let's  experiment with ranking by z-scores:
+# 
+top_features <- feature_selection(topic_party_table,
+                                  rows_to_compare = c(8,7),
+                                  alpha = 0.001 * avg_terms_per_category,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = FALSE)
+```
+
+```{r}
+# output a png with the plot included:
+png(file = "~/Desktop/AQ_1_FINAL.png",
+    width = 10,
+    height = 8.5,
+    units = "in",
+    res = 200)
+fightin_words_plot(top_features,
+                   positive_category = "Pre Trump Air Quality",
+                   negative_category = "Post Trump Air Quality",
+                   max_terms_to_display = 1000000)
+dev.off()
+```
+
+```{r}
+# now lets try ranking by log-odds and see how the ranking changes:
+# Exclusively in one category and not at all in another category
+# 
+top_features <- feature_selection(topic_party_table,
+                                  rows_to_compare = c(2,1),
+                                  alpha = .001 * avg_terms_per_category,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = TRUE)
+```
+
+```{r}
+# output a png with the plot included:
+png(file = "~/Desktop/AQ_1_log_odds_FINAL.png",
+    width = 10,
+    height = 8.5,
+    units = "in",
+    res = 200)
+fightin_words_plot(top_features,
+                   positive_category = "Pre Trump EE",
+                   negative_category = "Post Trump EE",
+                   max_terms_to_display = 1000000)
+dev.off()
+```
+
+
+
+```{r}
+
+topic_party_table1 <- contingency_table(
+    metadata = document_covariates,
+    document_term_matrix = dtm_triplet,
+    variables_to_use = c("topic_merge","election"),
+    threshold = 1
+    )
+
+rownames(topic_party_table1)
+
+avg_terms_per_category1 <- mean(slam::row_sums(topic_party_table1))
+
+# we can also try to generate a plot with subsumed n-grams as top terms:
+top_features1 <- feature_selection(topic_party_table1,
+                                  rows_to_compare = c(8,7),
+                                  document_term_matrix = dtm_triplet,
+                                  alpha = avg_terms_per_category1,
+                                  method = "informed Dirichlet",
+                                  rank_by_log_odds = FALSE,
+                                  subsume_ngrams = TRUE,
+                                  ngram_subsumption_correlation_threshold = 0.8)
+```
+
+```{r}
+dtm_stm <- tokens_remove(tokens(corpus_ta_final, remove_punct = TRUE), stopwords("english")) %>% tokens_ngrams(., n = 1:3) %>% dfm(.)
+
+dtm_stm
+
+dtm_stm <- dfm_trim(dtm_stm,
+                min_termfreq = 5)
+
+# now we convert to a simple triplet matrix
+dtm_trip <- SpeedReader::convert_quanteda_to_slam(dtm_stm)
+
+```
+
+```{r}
+summary(rowSums(dtm_stm))
+```
+
+```{r}
+# lets fit a topic model with covariate effects
+stm_fit <- stm(dtm_stm,
+               prevalence = as.formula("~topic_merge"),
+               # Limits functionality if we consider content as well
+               content = as.formula("~election"),
+               data = docvars(dtm_stm),
+               K = 30,
+               seed = 12345,
+               verbose = TRUE)
+```
+
+```{r}
+# we can start by looking at the top 8 terms in each of the topics,
+# along with their overall proportion in the corpus:
+png(file = "~/Desktop/Topic_Summaries_RFF_TM2_FINAL.png",
+    width = 12,
+    height = 10,
+    units = "in",
+    res = 200)
+plot.STM(stm_fit,
+         type="summary",
+         n = 8)
+dev.off()
+
+# optional argument when no content covariates: labeltype = "frex"
+```
+
+```{r}
+# lets take a look at topic quality
+out <- quanteda::convert(dtm_stm, to = "stm")
+docs <- out$documents
+vocab <- out$vocab
+meta <- out$meta
+# will make a plot for models without content covariates, only returns coherence
+# scores for each topic when content covariates are specified:
+topicQuality(model=stm_fit, documents=docs)
+
+# much more detailed term ranking within topics:
+print(sageLabels(stm_fit))
+```
+
+
+```{r}
+# we can also make a "perspectives" plot with words most strongly associated
+# to each party within topic:
+png(file = "~/Desktop/Administration_Terms_RFF_water.png",
+    width = 8,
+    height = 8,
+    units = "in",
+    res = 200)
+plot(stm_fit, type="perspectives", topics=26, n = 60)
+dev.off()
+```
+
+```{r}
+findThoughts(stm_fit,
+             texts = texts(corpus_ta_final),
+             topics = 28,
+             n = 2)
+```
+
+```{r}
+# we can also extracta trace plot of the approximate model log likelihood:
+png(file = "~/Desktop/Trace_Plot_RFF_FINAL.png",
+    width = 6,
+    height = 4,
+    units = "in",
+    res = 200)
+plot(stm_fit$convergence$bound,
+     ylab="Approximate Objective",
+     main="Trace Plot")
+dev.off()
+```
+```
+
